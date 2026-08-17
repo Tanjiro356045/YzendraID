@@ -52,7 +52,11 @@ curl -X POST http://217.154.121.159:8091/api/login \
   -d '{"email":"cavalier@example.com","password":"motdepasse123"}'
 ```
 
-Réponse `200` : `{"token": "..."}`. Erreur `401` si identifiants invalides.
+Réponse `200` : `{"token": "..."}`. Erreur `401` si identifiants invalides :
+`{"code": 401, "message": "Invalid credentials."}` (format du
+`failure_handler` par défaut de `lexik/jwt-authentication-bundle` — PAS le
+même format que l'API d'Equi, qui utilise un authenticator custom avec son
+propre format `{"error": "..."}`, voir Notes techniques).
 
 ## `GET /api/me`
 
@@ -62,6 +66,22 @@ curl http://217.154.121.159:8091/api/me -H "Authorization: Bearer <token>"
 
 Réponse `200` : `{"id", "email", "prenom", "nom", "roles", "dateCreation"}`. `401` sans token valide.
 
+## `POST /api/me/password`
+
+Change le mot de passe du compte authentifié (Bearer token). Le caller
+(vitrine, Equi) est responsable d'avoir déjà revérifié le mot de passe
+actuel lui-même (typiquement en rappelant `POST /api/login` avec) avant
+d'appeler cette route — elle ne revérifie que la validité du token, pas
+l'ancien mot de passe.
+
+```bash
+curl -X POST http://217.154.121.159:8091/api/me/password \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"newPassword":"nouveaumotdepasse123"}'
+```
+
+Réponse `200` : `{"status": "ok"}`. `422` si `newPassword` invalide (moins de 6 caractères).
+
 ## Notes techniques
 
 - Implémentation identique (copiée puis adaptée) à celle construite le
@@ -69,6 +89,14 @@ Réponse `200` : `{"id", "email", "prenom", "nom", "roles", "dateCreation"}`. `4
   firewalls `api_login`/`api`, route vide `/api/login` dans
   `config/routes.yaml` — indispensable, sinon le `RouterListener` de
   Symfony 404 avant même que le firewall JWT s'exécute).
+  **Différence assumée avec Equi** : ici, `/api/login` utilise toujours le
+  `json_login` natif de Symfony + les handlers par défaut de
+  `lexik/jwt-authentication-bundle`, alors qu'Equi est passé à un
+  authenticator custom (`ApiLoginAuthenticator`) pour pouvoir basculer
+  entre auth locale et centrale selon `AUTH_MODE`. Ce service-ci n'a pas
+  ce besoin (il EST la source de vérité, pas un client), donc pas de
+  raison de s'écarter du composant standard - mais ça veut dire que le
+  format d'erreur de login diffère entre les deux APIs (voir ci-dessus).
 - Token JWT RS256, durée de vie 1h (défaut du bundle), pas de refresh
   token pour l'instant.
 - La clé publique (`config/jwt/public.pem`, générée par `infra/setup.sh`)

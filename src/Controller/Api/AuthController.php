@@ -70,4 +70,38 @@ class AuthController extends AbstractApiController
 
         return $this->json($this->serializeAccount($account));
     }
+
+    /**
+     * Changes the password of the currently authenticated account. Callers
+     * are expected to have already re-verified the current password
+     * themselves (ex. by calling POST /api/login with it) before obtaining
+     * the Bearer token used here - this endpoint only checks that the token
+     * is valid, not the old password again.
+     */
+    #[Route('/me/password', name: 'api_me_password', methods: ['POST'])]
+    public function changePassword(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        UserPasswordHasherInterface $passwordHasher,
+        ValidatorInterface $validator,
+    ): JsonResponse {
+        $data = json_decode($request->getContent(), true) ?? [];
+
+        $violations = $validator->validate($data, new Assert\Collection(
+            fields: [
+                'newPassword' => [new Assert\NotBlank(), new Assert\Length(min: 6, max: 4096)],
+            ],
+            allowExtraFields: true,
+        ));
+        if (\count($violations) > 0) {
+            return $this->violationsResponse($violations);
+        }
+
+        /** @var Account $account */
+        $account = $this->getUser();
+        $account->setPassword($passwordHasher->hashPassword($account, $data['newPassword']));
+        $entityManager->flush();
+
+        return $this->json(['status' => 'ok']);
+    }
 }
