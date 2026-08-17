@@ -89,6 +89,36 @@ class AuthController extends AbstractApiController
         return $this->json(['ticket' => $ticket]);
     }
 
+    /**
+     * Issues a short-lived signed ticket an app hands DIRECTLY to another
+     * app (ex. vitrine -> equi.yzendra.fr/sso-login) to log the user in
+     * there without a password - no round-trip through this service
+     * needed on that side, unlike /trusted-device, since the receiving
+     * app can verify the ticket itself with the shared public key.
+     * Same auth requirement as /trusted-device: a fresh Bearer token,
+     * proving the CALLING app's session is genuinely this account.
+     */
+    #[Route('/sso-ticket', name: 'api_sso_ticket', methods: ['POST'])]
+    public function issueSsoTicket(
+        #[Autowire('%env(resolve:JWT_SECRET_KEY)%')] string $privateKeyPath,
+        #[Autowire('%env(JWT_PASSPHRASE)%')] string $passphrase,
+    ): JsonResponse {
+        /** @var Account $account */
+        $account = $this->getUser();
+
+        $ticket = DeviceTrustTicket::sign([
+            'typ' => 'sso_login',
+            'account_id' => $account->getId(),
+            'email' => $account->getEmail(),
+            'prenom' => $account->getPrenom(),
+            'nom' => $account->getNom(),
+            'exp' => time() + 60,
+            'jti' => bin2hex(random_bytes(12)),
+        ], file_get_contents($privateKeyPath), $passphrase);
+
+        return $this->json(['ticket' => $ticket]);
+    }
+
     #[Route('/me', name: 'api_me', methods: ['GET'])]
     public function me(): JsonResponse
     {
