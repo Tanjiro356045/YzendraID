@@ -3,8 +3,10 @@
 namespace App\Controller\Api;
 
 use App\Entity\Account;
+use App\Security\DeviceTrust\DeviceTrustTicket;
 use Doctrine\ORM\EntityManagerInterface;
 use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -62,6 +64,31 @@ class AuthController extends AbstractApiController
         ], Response::HTTP_CREATED);
     }
 
+    /**
+     * Issues a short-lived signed ticket an app exchanges (via a browser
+     * redirect to /trust-device/confirm) for a long-lived trust cookie on
+     * this domain - see DeviceTrustController. Requires a fresh Bearer
+     * token, same as any other authenticated /api route, so only the app
+     * that just verified this account's password+2FA can call it.
+     */
+    #[Route('/trusted-device', name: 'api_trusted_device', methods: ['POST'])]
+    public function issueTrustedDeviceTicket(
+        #[Autowire('%env(resolve:JWT_SECRET_KEY)%')] string $privateKeyPath,
+        #[Autowire('%env(JWT_PASSPHRASE)%')] string $passphrase,
+    ): JsonResponse {
+        /** @var Account $account */
+        $account = $this->getUser();
+
+        $ticket = DeviceTrustTicket::sign([
+            'typ' => 'register_device',
+            'account_id' => $account->getId(),
+            'exp' => time() + 300,
+            'jti' => bin2hex(random_bytes(12)),
+        ], file_get_contents($privateKeyPath), $passphrase);
+
+        return $this->json(['ticket' => $ticket]);
+    }
+
     #[Route('/me', name: 'api_me', methods: ['GET'])]
     public function me(): JsonResponse
     {
@@ -69,6 +96,42 @@ class AuthController extends AbstractApiController
         $account = $this->getUser();
 
         return $this->json($this->serializeAccount($account));
+    }
+
+    /**
+     * Lets an app (ex. the vitrine) propagate an email change made on its
+     * own side back to the central account - closes the gap where editing
+     * the email from /compte/modifier only updated the local User row.
+     */
+    #[Route('/me', name: 'api_me_patch', methods: ['PATCH'])]
+    public function updateMe(Request $request, EntityManagerInterface $entityManager, ValidatorInterface $validator): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true) ?? [];
+
+        if (!\array_key_exists('email', $data)) {
+            return $this->json(['status' => 'ok', 'account' => $this->serializeAccount($this->getUser())]);
+        }
+
+        $violations = $validator->validate($data, new Assert\Collection(
+            fields: ['email' => [new Assert\NotBlank(), new Assert\Email()]],
+            allowExtraFields: true,
+        ));
+        if (\count($violations) > 0) {
+            return $this->violationsResponse($violations);
+        }
+
+        /** @var Account $account */
+        $account = $this->getUser();
+
+        $existing = $entityManager->getRepository(Account::class)->findOneBy(['email' => $data['email']]);
+        if (null !== $existing && $existing->getId() !== $account->getId()) {
+            return $this->json(['error' => 'Un compte existe déjà avec cet email.'], Response::HTTP_CONFLICT);
+        }
+
+        $account->setEmail($data['email']);
+        $entityManager->flush();
+
+        return $this->json(['account' => $this->serializeAccount($account)]);
     }
 
     /**

@@ -16,6 +16,13 @@ security:
             # Ensure dev tools and static assets are always allowed
             pattern: ^/(_profiler|_wdt|assets|build)/
             security: false
+        device_trust:
+            # /trust-device/confirm et /check-device : redirections publiques
+            # basées sur un cookie propre à ce domaine + des tickets signés,
+            # pas de notion d'utilisateur Symfony Security ici (voir
+            # DeviceTrustController) - donc pas de provider, juste désactivé.
+            pattern: ^/(trust-device|check-device)
+            security: false
         api_login:
             pattern: ^/api/login
             stateless: true
