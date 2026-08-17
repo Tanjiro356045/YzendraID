@@ -41,6 +41,10 @@ security:
     access_control:
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
         - { path: ^/api/register, roles: PUBLIC_ACCESS }
+        # Pas de JWT ici par nature (mot de passe oublié = pas de session) -
+        # protégé par un secret partagé vérifié dans InternalController,
+        # pas par ce firewall.
+        - { path: ^/api/internal, roles: PUBLIC_ACCESS }
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
 
 when@test:
