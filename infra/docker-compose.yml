@@ -1,0 +1,44 @@
+name: yzendraid
+
+services:
+  adminer:
+    image: adminer
+    container_name: yzendraid-adminer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    networks:
+      - default
+
+  nginx:
+    image: nginx:alpine
+    container_name: yzendraid-nginx
+    restart: unless-stopped
+    ports:
+      - "8091:80"
+    volumes:
+      - ../:/var/www/yzendra-id
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - php
+
+  php:
+    build: ./docker/php
+    container_name: yzendraid-php
+    restart: unless-stopped
+    volumes:
+      - ../:/var/www/yzendra-id
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: yzendraid-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
